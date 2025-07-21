@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: lightml
+Version: 0.0.1
+Summary: Model Selection Tool
+Author-email: Foresty <dsparthsrivastava@email.com>
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pandas
