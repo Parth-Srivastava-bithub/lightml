@@ -1,99 +1,183 @@
-### 📘 **Linear Regression – Normal Equation Implementation**
+# 📊 Linear Regression – Custom Implementations (OLS, BGD, L1 Regularized)
 
-This `fit` function fits a **Linear Regression** model using the **Normal Equation**, which directly calculates the optimal weights (coefficients) without any iteration.
+This project contains three custom implementations of Linear Regression:
 
-#### 💡 Code Explanation:
+1. **OLS (Normal Equation)**
+2. **Batch Gradient Descent (BGD)**
+3. **L1-Regularized BGD (Lasso)**
 
-```python
-def fit(self, X_train, y_train):
-    if X_train.ndim == 1:
-        X_train = X_train.reshape(-1, 1)  # Ensure 2D input for single feature
+Each class follows the same structure: `fit`, `predict`, `returnScore`, and `getEquation`.
 
-    X_train = np.hstack((np.ones((X_train.shape[0], 1)), X_train))  # Add bias term
-    self.coef_ = np.dot(np.linalg.inv(np.dot(X_train.T, X_train)), np.dot(X_train.T, y_train))  # Normal Equation
-```
+---
 
-#### 🧠 Logic Behind It:
+## 1️⃣ **Ordinary Least Squares (OLS)**
 
-We solve the following equation directly:
+### 🔬 Algorithm:
+
+Solves the linear regression analytically using the **Normal Equation**:
 
 $$
 \theta = (X^T X)^{-1} X^T y
 $$
 
-Where:
+### 📌 Steps:
 
-* $X$ is the design matrix (with a column of ones for bias)
-* $y$ is the target vector
-* $\theta$ is the vector of weights (including bias)
-
-#### 🔢 Steps:
-
-1. **Bias Term Addition**
-   Add a column of ones to handle the intercept:
+1. Add bias term to feature matrix:
 
    $$
-   X = \begin{bmatrix} 1 & x_1 \\ 1 & x_2 \\ \vdots & \vdots \\ 1 & x_n \end{bmatrix}
+   X \leftarrow [\mathbf{1}, X]
    $$
 
-2. **Apply Normal Equation**
-   Calculate weights:
+2. Apply normal equation:
 
    $$
    \theta = (X^T X)^{-1} X^T y
    $$
 
-3. **Result**
-   `self.coef_` stores the learned parameters:
+3. Predict:
 
-   * First value = bias
-   * Rest = feature coefficients
+   $$
+   \hat{y} = X \cdot \theta
+   $$
+
+4. Score (R²):
+
+   $$
+   R^2 = 1 - \frac{\sum (y - \hat{y})^2}{\sum (y - \bar{y})^2}
+   $$
 
 ---
 
-### 🧲 **Linear Regression – L1 Regularization (Lasso) using BGD**
+## 2️⃣ **Batch Gradient Descent (BGD)**
 
-This version of linear regression includes **L1 regularization**, which encourages **sparse weights** (many coefficients become zero).
+### 🔁 Algorithm:
 
-#### 🔧 Code Overview:
-
-```python
-def fit(self, X_train, y_train):
-    if X_train.ndim == 1:
-        X_train = X_train.reshape(-1, 1)
-    if y_train.ndim > 1:
-        y_train = y_train.ravel()
-
-    X_train = np.hstack((np.ones((X_train.shape[0], 1)), X_train))  # Add bias
-    self.coef_ = np.zeros(X_train.shape[1])  # Init weights
-    n = X_train.shape[0]
-
-    for _ in range(self.epochs):
-        error = y_train - np.dot(X_train, self.coef_)
-        slope = (-2 / n) * np.dot(X_train.T, error) + self.thisLambda * np.sign(self.coef_)
-        self.coef_ -= self.learning_rate * slope
-```
-
-#### 🔍 What's New: L1 Penalty
-
-The gradient update includes **L1 term**:
+Instead of directly solving the equation, this version uses **BGD** to iteratively minimize the MSE:
 
 $$
-\theta := \theta - \alpha \left[ \frac{-2}{n} X^T (y - X\theta) + \lambda \cdot \text{sign}(\theta) \right]
+J(\theta) = \frac{1}{n} \sum_{i=1}^{n} (y^{(i)} - \hat{y}^{(i)})^2
+$$
+
+Update rule per iteration:
+
+$$
+\theta := \theta - \alpha \cdot \nabla_\theta
 $$
 
 Where:
 
-* $\lambda$: regularization strength (`self.thisLambda`)
-* $\text{sign}(\theta)$: element-wise sign function
-* L1 penalty pushes weights toward **zero**, aiding in feature selection
+$$
+\nabla_\theta = -\frac{2}{n} X^T(y - X\theta)
+$$
 
-#### 🎯 Result:
+### 🔄 Steps:
 
-After training, `self.coef_` contains:
+1. Add bias:
 
-* $\theta_0$: bias term
-* $\theta_i$: possibly zeroed coefficients due to L1
+   $$
+   X \leftarrow [\mathbf{1}, X]
+   $$
+
+2. Initialize weights to zeros:
+
+   $$
+   \theta = [0, 0, ..., 0]
+   $$
+
+3. For each epoch:
+
+   * Compute predictions: $\hat{y} = X\theta$
+   * Compute error: $e = y - \hat{y}$
+   * Compute gradient:
+
+     $$
+     \nabla_\theta = -\frac{2}{n} X^T e
+     $$
+   * Update:
+
+     $$
+     \theta := \theta - \alpha \cdot \nabla_\theta
+     $$
+
+4. Predict and evaluate just like OLS.
+
+---
+
+## 3️⃣ **L1 Regularized BGD (Lasso)**
+
+### 🔐 Algorithm:
+
+Applies **L1 regularization** to induce sparsity in the coefficients.
+
+Loss function with regularization:
+
+$$
+J(\theta) = \frac{1}{n} \sum_{i=1}^{n} (y^{(i)} - \hat{y}^{(i)})^2 + \lambda \sum_{j=1}^{m} |\theta_j|
+$$
+
+Update rule:
+
+$$
+\theta := \theta - \alpha \left( \nabla_\theta + \lambda \cdot \text{sign}(\theta) \right)
+$$
+
+### 🧾 Steps:
+
+1. Add bias:
+
+   $$
+   X \leftarrow [\mathbf{1}, X]
+   $$
+
+2. Initialize weights to zero.
+
+3. For each epoch:
+
+   * Compute error: $e = y - X\theta$
+   * Compute gradient:
+
+     $$
+     \nabla_\theta = -\frac{2}{n} X^T e + \lambda \cdot \text{sign}(\theta)
+     $$
+   * Update:
+
+     $$
+     \theta := \theta - \alpha \cdot \nabla_\theta
+     $$
+
+4. Final model has **sparse weights** (some set to 0).
+
+---
+
+## 🧠 Common Functions
+
+### ✅ `predict(X_test)`
+
+Adds bias and returns predictions:
+
+$$
+\hat{y} = X \cdot \theta
+$$
+
+---
+
+### 📈 `returnScore(X_test, y_test)`
+
+Computes the R² score:
+
+$$
+R^2 = 1 - \frac{\sum (y - \hat{y})^2}{\sum (y - \bar{y})^2}
+$$
+
+---
+
+### ✍️ `getEquation()`
+
+Returns a string of the model:
+
+$$
+\hat{y} = \theta_0 + \theta_1 x_1 + \theta_2 x_2 + \dots + \theta_n x_n
+$$
 
 ---
 
