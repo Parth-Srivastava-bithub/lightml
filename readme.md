@@ -1,6 +1,6 @@
-# lightml
+# lazybrains
 
-**lightml** is a simple model selection tool for linear regression, supporting OLS (Normal Equation), Batch Gradient Descent (BGD), and BGD with L1 regularization (Lasso). It is built on top of pandas and numpy.
+**lazybrains** is a simple model selection tool for linear regression, supporting OLS (Normal Equation), Batch Gradient Descent (BGD), and BGD with L1 regularization (Lasso). It is built on top of pandas and numpy.
 
 
 ## Usage
@@ -9,10 +9,10 @@
 
 ```python
 import pandas as pd
-from lightml import lightml
+from lazybrains import Lazy_Work
 
 df = pd.read_csv("your_data.csv")
-lm = lightml(df)
+lm = Lazy_Work(df)
 ```
 
 ### 2. Split Data
