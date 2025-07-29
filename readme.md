@@ -1,70 +1,73 @@
-# lazybrains
+# 🧠 Universal ML Model Explorer Pro
 
-**lazybrains** is a simple model selection tool for linear regression, supporting OLS (Normal Equation), Batch Gradient Descent (BGD), and BGD with L1 regularization (Lasso). It is built on top of pandas and numpy.
+![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
+![Platform](https://img.shields.io/badge/Platform-Cross--Platform-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Maintained](https://img.shields.io/badge/Maintained%3F-Yes-blue)
+![Status](https://img.shields.io/badge/Status-Active-success)
+![Build](https://img.shields.io/badge/Build-Passing-brightgreen)
+![Downloads](https://img.shields.io/pypi/dm/lazybrains?label=Downloads&color=orange)
+
+> One-line ML pipeline that preprocesses, trains, compares, and visualizes the best model — automatically.
 
 
-## Usage
+Automatically train, evaluate, compare, and visualize multiple machine learning models — all with one command.
 
-### 1. Import and Prepare Data
+## 🚀 Features
 
-```python
-import pandas as pd
-from lazybrains import Lazy_Work
+* Auto detection: Classification or Regression
+* Auto preprocessing: Scaling, Encoding, Imputation, PCA
+* Parallel model training on all cores
+* SHAP interpretability plots
+* Beautiful visual reports (Confusion Matrix, ROC, Residuals, etc.)
+* CLI + Notebook compatible
 
-df = pd.read_csv("your_data.csv")
-lm = Lazy_Work(df)
+## 📦 Installation
+
+```bash
+pip install -r requirements.txt
 ```
 
-### 2. Split Data
+## 🧪 CLI Usage
+
+```bash
+python main.py path/to/dataset.csv target_column_name
+```
+
+### Optional flags:
+
+* `--output_dir`: Folder to save results (default: `results`)
+* `--pca_components`: Apply PCA on numeric features
+* `--no_shap`: Disable SHAP plot (faster)
+
+## 🧬 Python Usage
 
 ```python
-lm.fit_data(
-    random_state=42,
-    ratio=0.8,
-    training_features=['feature1', 'feature2'],
-    target_features=['target']
+from yourlib import run_pipeline_in_notebook
+
+run_pipeline_in_notebook(
+    dataset_path="data.csv",
+    target_column="target",
+    pca_components=5,
+    no_shap=False
 )
 ```
 
-### 3. Standardize Features (Optional)
+## 📂 Output
 
-```python
-lm.Standard_Scale(features=['feature1', 'feature2'])
-```
+* `best_model.pkl`: Trained model
+* Plots: Confusion Matrix, ROC, Residuals, SHAP
+* `model_report.txt`: Full model comparison
 
-### 4. Train Models
+## 🛠️ Supported Models
 
-#### OLS (Normal Equation)
+* Linear, Tree-based, Ensemble (RF, GB, AdaBoost, XGBoost), KNN, SVM, Stacking
+* Auto selection of best based on Accuracy / R²
 
-```python
-score = lm.doML(model="lr", method="ols", get_equation=True)
-print("R2 Score:", score)
-```
+## Run this in your terminal to install all dependencies
 
-#### Batch Gradient Descent
-
-```python
-score = lm.doML(model="lr", method="bgd", epochs=200, learning_rate=0.01, get_equation=True)
-print("R2 Score:", score)
-```
-
-#### Lasso Regression (BGD + L1)
-
-```python
-score = lm.doML(model="lr", method="bgd", penalty="l1", epochs=200, learning_rate=0.01, lamda_=0.1, get_equation=True)
-print("R2 Score:", score)
-```
-
-### 5. Save/Load Model
-
-```python
-lm.save_model(model_obj, filename="model.pkl")
-loaded_model = lm.load_model(filename="model.pkl")
+```cmd
+pip install pandas numpy matplotlib seaborn scikit-learn xgboost shap joblib rich
 ```
 
 ---
-
-MIT
-
----
-
