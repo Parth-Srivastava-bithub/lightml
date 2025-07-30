@@ -1,12 +1,20 @@
 Metadata-Version: 2.4
 Name: lazybrains
-Version: 1.0.0
+Version: 1.0.8
 Summary: Model Selection Tool
 Author-email: Foresty <dsparthsrivastava@email.com>
+Project-URL: Homepage, https://github.com/Parth-Srivastava-bithub/lightml
 Requires-Python: >=3.8
 Description-Content-Type: text/markdown
 Requires-Dist: numpy
 Requires-Dist: pandas
+Requires-Dist: matplotlib
+Requires-Dist: seaborn
+Requires-Dist: scikit-learn
+Requires-Dist: xgboost
+Requires-Dist: shap
+Requires-Dist: joblib
+Requires-Dist: rich
 
 # 🧠 Universal ML Model Explorer Pro
 

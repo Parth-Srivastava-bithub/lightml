@@ -107,6 +107,457 @@ def get_models(problem_type: str) -> dict:
         }
     return models
 
+# -*- coding: utf-8 -*-
+"""
+AutoFeatSelect: A Lightweight Python Library for Automatic Feature Selection.
+
+This library provides a single class, AutoFeatSelect, to automatically identify and
+drop irrelevant, redundant, or low-information features from a pandas DataFrame.
+It uses a combination of statistical, mathematical, and model-based techniques
+to clean a dataset, making it ready for machine learning.
+
+Core Features:
+- Handles both numerical and categorical data.
+- Provides a detailed report explaining why each feature was dropped.
+- Highly customizable with thresholds for various checks.
+- Lightweight, with dependencies only on pandas, numpy, scikit-learn, and statsmodels.
+
+Author: Gemini
+Version: 1.0.0
+"""
+
+import pandas as pd
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.feature_selection import VarianceThreshold, mutual_info_classif, mutual_info_regression
+from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
+from sklearn.preprocessing import LabelEncoder
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import squareform
+import warnings
+
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+class AutoFeatSelect(BaseEstimator, TransformerMixin):
+    """
+    Automated feature selection tool to drop irrelevant or redundant features.
+
+    This transformer applies a series of selection methods in a specific order
+    to efficiently prune the feature space.
+
+    Parameters
+    ----------
+    target_col : str, optional (default=None)
+        Name of the target column. If provided, it will be used for supervised
+        selection methods.
+    
+    missing_threshold : float, optional (default=0.95)
+        Drop columns with a ratio of missing values higher than this threshold.
+        
+    id_threshold : float, optional (default=0.99)
+        Drop columns where the ratio of unique values to rows is higher than this.
+        Useful for dropping ID-like columns.
+        
+    variance_threshold : float, optional (default=0.01)
+        Threshold for the VarianceThreshold selector to drop low-variance features.
+        
+    correlation_threshold : float, optional (default=0.90)
+        Drop one of a pair of features with a Pearson correlation higher than this.
+        
+    use_correlation_clustering : bool, optional (default=True)
+        If True, uses hierarchical clustering on the correlation matrix to drop
+        redundant features, which can be more robust than pairwise checks. If False,
+        uses a simpler pairwise correlation check.
+
+    multicollinearity_threshold : float, optional (default=10.0)
+        Variance Inflation Factor (VIF) threshold for dropping collinear features.
+        
+    feature_importance_threshold : float, optional (default=0.001)
+        Threshold for tree-based feature importance. Features with importance
+        below this will be dropped. Requires a target column.
+        
+    mutual_info_threshold : float, optional (default=0.01)
+        Threshold for mutual information. Features with MI below this will be dropped.
+        Requires a target column.
+        
+    verbose : bool, optional (default=False)
+        If True, prints progress during the fitting process.
+    """
+
+    def __init__(self, target_col=None, missing_threshold=0.95, id_threshold=0.99,
+                 variance_threshold=0.01, correlation_threshold=0.90,
+                 use_correlation_clustering=True, multicollinearity_threshold=10.0,
+                 feature_importance_threshold=0.001, mutual_info_threshold=0.01,
+                 verbose=False):
+        self.target_col = target_col
+        self.missing_threshold = missing_threshold
+        self.id_threshold = id_threshold
+        self.variance_threshold = variance_threshold
+        self.correlation_threshold = correlation_threshold
+        self.use_correlation_clustering = use_correlation_clustering
+        self.multicollinearity_threshold = multicollinearity_threshold
+        self.feature_importance_threshold = feature_importance_threshold
+        self.mutual_info_threshold = mutual_info_threshold
+        self.verbose = verbose
+        
+        self.dropped_features_report_ = {}
+        self.initial_features_ = []
+        self.final_features_ = []
+
+    def _log(self, message):
+        """Prints a message if verbose is True."""
+        if self.verbose:
+            print(f"[AutoFeatSelect] {message}")
+
+    def _add_to_report(self, features, reason):
+        """Adds dropped features and the reason to the report."""
+        if not isinstance(features, list):
+            features = [features]
+        for feature in features:
+            if feature not in self.dropped_features_report_:
+                self.dropped_features_report_[feature] = reason
+
+    def fit(self, X, y=None):
+        """
+        Fits the feature selector to the data.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            The input data.
+        y : pd.Series or np.array, optional (default=None)
+            The target variable. If not provided, the `target_col` in X will be used.
+        
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+        """
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("Input must be a pandas DataFrame.")
+
+        df = X.copy()
+        
+        # Separate target if it exists
+        if self.target_col and self.target_col in df.columns:
+            y = df[self.target_col]
+            df = df.drop(columns=[self.target_col])
+            self._log(f"Target column '{self.target_col}' identified and separated.")
+
+        self.initial_features_ = df.columns.tolist()
+        
+        # --- Stage 1: Basic Cleanup (Unsupervised) ---
+        df = self._drop_missing_values(df)
+        df = self._drop_single_value_columns(df)
+        df = self._drop_id_like_columns(df)
+        
+        # --- Stage 2: Statistical Pruning (Unsupervised) ---
+        df = self._drop_low_variance_features(df)
+        if self.use_correlation_clustering:
+            df = self._drop_correlated_features_clustered(df)
+        else:
+            df = self._drop_correlated_features_pairwise(df)
+        df = self._drop_multicollinearity(df)
+
+        # --- Stage 3: Supervised Selection (if target is available) ---
+        if y is not None:
+            self._log("Target variable provided. Running supervised selection methods.")
+            # Ensure y is a pandas Series with the same index as df
+            y = pd.Series(y, index=df.index)
+            
+            # Impute NaNs for supervised methods
+            df_imputed, y_imputed = self._impute_for_supervised(df, y)
+            
+            df = self._drop_low_mutual_information(df_imputed, y_imputed)
+            df = self._drop_low_importance_features(df_imputed, y_imputed)
+        else:
+            self._log("No target variable. Skipping supervised selection methods.")
+            
+        self.final_features_ = df.columns.tolist()
+        self._log(f"Finished selection. Kept {len(self.final_features_)} out of {len(self.initial_features_)} features.")
+        return self
+
+    def transform(self, X, drop=True):
+        """
+        Transforms the data by dropping selected features.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            The input data to transform.
+        drop : bool, optional (default=True)
+            If True, drops the identified features. If False, returns the original DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            The transformed DataFrame with irrelevant features removed.
+        """
+        if not drop:
+            return X
+        
+        if not self.final_features_:
+             raise RuntimeError("You must call 'fit' before calling 'transform'.")
+        
+        df = X.copy()
+        
+        # Ensure target column is preserved if it was in the original transform input
+        cols_to_keep = self.final_features_
+        if self.target_col and self.target_col in df.columns:
+            cols_to_keep = [self.target_col] + self.final_features_
+            
+        return df[cols_to_keep]
+
+    def fit_transform(self, X, y=None, drop=True):
+        """
+        Fits to data, then transforms it.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            The input data.
+        y : pd.Series or np.array, optional (default=None)
+            The target variable.
+        drop : bool, optional (default=True)
+            If True, drops the identified features. If False, returns the original DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            The transformed DataFrame.
+        """
+        self.fit(X, y)
+        return self.transform(X, drop=drop)
+    
+    def get_report(self, as_dataframe=True):
+        """
+        Returns a report of dropped features and the reasons.
+
+        Parameters
+        ----------
+        as_dataframe : bool, optional (default=True)
+            If True, returns the report as a pandas DataFrame. Otherwise, returns a dict.
+
+        Returns
+        -------
+        pd.DataFrame or dict
+            A report detailing which features were dropped and why.
+        """
+        if not self.dropped_features_report_:
+            print("No features were dropped.")
+            return pd.DataFrame(columns=['Feature', 'Reason Dropped']) if as_dataframe else {}
+            
+        if as_dataframe:
+            report_df = pd.DataFrame(list(self.dropped_features_report_.items()),
+                                     columns=['Feature', 'Reason Dropped'])
+            report_df.sort_values(by='Reason Dropped', inplace=True)
+            return report_df
+        return self.dropped_features_report_
+
+    # --- Private Helper Methods for each selection stage ---
+
+    def _drop_missing_values(self, df):
+        self._log("Running: Drop high missing values...")
+        missing_ratio = df.isnull().sum() / len(df)
+        high_missing_cols = missing_ratio[missing_ratio > self.missing_threshold].index.tolist()
+        if high_missing_cols:
+            self._add_to_report(high_missing_cols, f"Missing > {self.missing_threshold*100:.0f}%")
+            df = df.drop(columns=high_missing_cols)
+            self._log(f"  Dropped: {high_missing_cols}")
+        return df
+
+    def _drop_single_value_columns(self, df):
+        self._log("Running: Drop single value columns...")
+        single_value_cols = [col for col in df.columns if df[col].nunique(dropna=False) <= 1]
+        if single_value_cols:
+            self._add_to_report(single_value_cols, "Single unique value")
+            df = df.drop(columns=single_value_cols)
+            self._log(f"  Dropped: {single_value_cols}")
+        return df
+
+    def _drop_id_like_columns(self, df):
+        self._log("Running: Drop ID-like columns...")
+        id_cols = []
+        for col in df.columns:
+            # Check for high cardinality primarily in object/int columns
+            if df[col].dtype in ['object', 'int64']:
+                unique_ratio = df[col].nunique() / len(df)
+                if unique_ratio > self.id_threshold:
+                    id_cols.append(col)
+        
+        if id_cols:
+            self._add_to_report(id_cols, f"ID-like (unique > {self.id_threshold*100:.0f}%)")
+            df = df.drop(columns=id_cols)
+            self._log(f"  Dropped: {id_cols}")
+        return df
+
+    def _drop_low_variance_features(self, df):
+        self._log("Running: Drop low variance features...")
+        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        if not numeric_cols:
+            return df
+        
+        temp_df = df[numeric_cols].dropna() # VarianceThreshold can't handle NaNs
+        if temp_df.empty:
+            return df
+
+        selector = VarianceThreshold(threshold=self.variance_threshold)
+        selector.fit(temp_df)
+        
+        low_variance_cols = [col for col, var in zip(temp_df.columns, selector.variances_) if var < self.variance_threshold]
+        
+        if low_variance_cols:
+            self._add_to_report(low_variance_cols, f"Variance < {self.variance_threshold}")
+            df = df.drop(columns=low_variance_cols)
+            self._log(f"  Dropped: {low_variance_cols}")
+        return df
+
+    def _drop_correlated_features_pairwise(self, df):
+        self._log("Running: Drop highly correlated features (pairwise)...")
+        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        if len(numeric_cols) < 2:
+            return df
+
+        corr_matrix = df[numeric_cols].corr().abs()
+        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        
+        to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold)]
+        
+        if to_drop:
+            self._add_to_report(to_drop, f"High correlation > {self.correlation_threshold}")
+            df = df.drop(columns=to_drop)
+            self._log(f"  Dropped: {to_drop}")
+        return df
+
+    def _drop_correlated_features_clustered(self, df):
+        self._log("Running: Drop highly correlated features (hierarchical clustering)...")
+        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        if len(numeric_cols) < 2:
+            return df
+
+        corr = df[numeric_cols].corr().abs()
+        dist = squareform(1 - corr)
+        linkage_matrix = hierarchy.linkage(dist, method='average')
+        
+        clusters = hierarchy.fcluster(linkage_matrix, 1 - self.correlation_threshold, criterion='distance')
+        
+        cluster_map = pd.DataFrame({'feature': numeric_cols, 'cluster': clusters})
+        
+        to_drop = []
+        for cluster_id in cluster_map['cluster'].unique():
+            features_in_cluster = cluster_map[cluster_map['cluster'] == cluster_id]['feature'].tolist()
+            if len(features_in_cluster) > 1:
+                # Keep the first feature, drop the rest in the cluster
+                to_drop.extend(features_in_cluster[1:])
+        
+        if to_drop:
+            self._add_to_report(to_drop, f"Redundant (correlation cluster > {self.correlation_threshold})")
+            df = df.drop(columns=to_drop)
+            self._log(f"  Dropped: {to_drop}")
+        return df
+
+    def _drop_multicollinearity(self, df):
+        self._log("Running: Drop multicollinear features (VIF)...")
+        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        if len(numeric_cols) < 2:
+            return df
+            
+        X_numeric = df[numeric_cols].dropna()
+        if X_numeric.empty:
+            return df
+
+        # Iteratively drop features with high VIF
+        while True:
+            vif = pd.DataFrame()
+            vif["feature"] = X_numeric.columns
+            vif["VIF"] = [variance_inflation_factor(X_numeric.values, i) for i in range(X_numeric.shape[1])]
+            
+            max_vif = vif['VIF'].max()
+            if max_vif > self.multicollinearity_threshold:
+                feature_to_drop = vif.sort_values('VIF', ascending=False)['feature'].iloc[0]
+                self._add_to_report(feature_to_drop, f"High multicollinearity (VIF > {self.multicollinearity_threshold})")
+                X_numeric = X_numeric.drop(columns=[feature_to_drop])
+                self._log(f"  Dropped: {feature_to_drop} (VIF: {max_vif:.2f})")
+            else:
+                break
+        
+        final_numeric_cols = X_numeric.columns.tolist()
+        cols_to_drop_from_df = [col for col in numeric_cols if col not in final_numeric_cols]
+        df = df.drop(columns=cols_to_drop_from_df)
+        return df
+
+    def _impute_for_supervised(self, df, y):
+        """A simple imputer for supervised methods."""
+        df_imputed = df.copy()
+        y_imputed = y.copy()
+
+        # Impute y if it has missing values
+        if y_imputed.isnull().any():
+            if pd.api.types.is_numeric_dtype(y_imputed):
+                y_imputed.fillna(y_imputed.median(), inplace=True)
+            else:
+                y_imputed.fillna(y_imputed.mode()[0], inplace=True)
+
+        for col in df_imputed.columns:
+            if df_imputed[col].isnull().any():
+                if pd.api.types.is_numeric_dtype(df_imputed[col]):
+                    df_imputed[col].fillna(df_imputed[col].median(), inplace=True)
+                else:
+                    df_imputed[col].fillna(df_imputed[col].mode()[0], inplace=True)
+        return df_imputed, y_imputed
+
+
+    def _drop_low_mutual_information(self, df, y):
+        self._log("Running: Drop features with low mutual information...")
+        df_encoded = df.copy()
+        
+        # Label encode categorical features for MI calculation
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        for col in categorical_cols:
+            le = LabelEncoder()
+            df_encoded[col] = le.fit_transform(df_encoded[col])
+            
+        if pd.api.types.is_numeric_dtype(y):
+            mi_scores = mutual_info_regression(df_encoded, y)
+        else:
+            mi_scores = mutual_info_classif(df_encoded, y)
+            
+        mi_series = pd.Series(mi_scores, index=df_encoded.columns)
+        low_mi_features = mi_series[mi_series < self.mutual_info_threshold].index.tolist()
+        
+        if low_mi_features:
+            self._add_to_report(low_mi_features, f"Mutual Information < {self.mutual_info_threshold}")
+            df = df.drop(columns=low_mi_features)
+            self._log(f"  Dropped: {low_mi_features}")
+        return df
+
+    def _drop_low_importance_features(self, df, y):
+        self._log("Running: Drop low importance features (Tree-based)...")
+        df_encoded = df.copy()
+        
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        for col in categorical_cols:
+            le = LabelEncoder()
+            df_encoded[col] = le.fit_transform(df_encoded[col])
+            
+        if pd.api.types.is_numeric_dtype(y):
+            model = ExtraTreesRegressor(n_estimators=50, random_state=42, n_jobs=-1)
+        else:
+            model = ExtraTreesClassifier(n_estimators=50, random_state=42, n_jobs=-1)
+            
+        model.fit(df_encoded, y)
+        
+        importances = pd.Series(model.feature_importances_, index=df_encoded.columns)
+        low_importance_features = importances[importances < self.feature_importance_threshold].index.tolist()
+        
+        if low_importance_features:
+            self._add_to_report(low_importance_features, f"Feature Importance < {self.feature_importance_threshold}")
+            df = df.drop(columns=low_importance_features)
+            self._log(f"  Dropped: {low_importance_features}")
+        return df
+
+
 def build_preprocessor(X: pd.DataFrame, problem_type: str, n_features: int = None, pca_components: int = None) -> ColumnTransformer:
     """Builds a scikit-learn ColumnTransformer for preprocessing."""
     numeric_features = X.select_dtypes(include=np.number).columns.tolist()
@@ -291,6 +742,7 @@ def generate_shap_plot(pipeline, X_train, X_test, problem_type, model_name, outp
         shap.summary_plot(shap_values_to_plot, X_test_transformed_df, show=False, plot_type="bar")
         plt.title(f"SHAP Feature Importance: {model_name}")
         plt.tight_layout()
+        
         shap_filename = output_dir / f"shap_summary_{model_name}.png"
         plt.savefig(shap_filename)
         plt.close()
@@ -300,15 +752,16 @@ def generate_shap_plot(pipeline, X_train, X_test, problem_type, model_name, outp
         console.print(f"  [bold yellow]⚠️ Warning: Could not generate SHAP plot. Reason: {e}[/bold yellow]")
 
 
-def main(args):
+def main(args, save_artifacts=False):
     """Main function to run the enhanced ML pipeline."""
     # --- 1. Setup & Introduction ---
     start_run_time = time.time()
-    output_dir = Path(args.output_dir) / f"results_{time.strftime('%Y%m%d_%H%M%S')}"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if save_artifacts:
+        output_dir = Path(args.output_dir) / f"results_{time.strftime('%Y%m%d_%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    console.print(Panel("🧠 [bold magenta]Universal ML Model Explorer Pro[/bold magenta] is Starting!", title="🚀 Launching", border_style="green"))
-    console.print(f"📂 All artifacts will be saved in: [cyan]{output_dir}[/cyan]")
+        console.print(Panel("🧠 [bold magenta]Universal ML Model Explorer Pro[/bold magenta] is Starting!", title="🚀 Launching", border_style="green"))
+        console.print(f"📂 All artifacts will be saved in: [cyan]{output_dir}[/cyan]")
 
     # --- 2. Dataset Loading ---
     try:
@@ -392,74 +845,63 @@ def main(args):
     console.print(f"🏆 [bold green]Best Model Identified: {best_model_name}[/bold green]")
 
     # --- 7. Generate and Save Artifacts ---
-    console.print("\n[bold blue]--- 💾 Generating Final Artifacts ---[/bold blue]")
+    if save_artifacts:
+        console.print("\n[bold blue]--- 💾 Generating Final Artifacts ---[/bold blue]")
 
-    # a) Save best model
-    model_filename = output_dir / "best_model.pkl"
-    joblib.dump(best_pipeline, model_filename)
-    console.print(f"✅ Best model saved as [cyan]'{model_filename}'[/cyan]")
+        # a) Save best model
+        model_filename = output_dir / "best_model.pkl"
+        joblib.dump(best_pipeline, model_filename)
+        console.print(f"✅ Best model saved as [cyan]'{model_filename}'[/cyan]")
 
-    # b) Generate visuals for the best model
-    generate_visuals(best_pipeline, X_test, y_test, problem_type, best_model_name, output_dir)
+        # b) Generate visuals for the best model
+        generate_visuals(best_pipeline, X_test, y_test, problem_type, best_model_name, output_dir)
 
     # c) Generate SHAP plot for the best model
-    if not args.no_shap:
+    if not args.no_shap and save_artifacts:
         generate_shap_plot(best_pipeline, X_train, X_test, problem_type, best_model_name, output_dir)
 
     # d) Save full report
-    report_filename = output_dir / "model_report.txt"
-    with open(report_filename, "w") as f:
-        f.write(f"--- Universal ML Model Explorer Report ---\n\n")
-        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Dataset: {args.dataset_path}\n")
-        f.write(f"Target Variable: {args.target_column}\n")
-        f.write(f"Problem Type: {problem_type.capitalize()}\n\n")
-        f.write(f"--- Best Model: {best_model_name} ---\n")
-        f.write(f"  - {metric1_name}: {best_model_result['Metric1']:.4f}\n")
-        f.write(f"  - {metric2_name}: {best_model_result['Metric2']:.4f}\n")
-        f.write(f"  - Training Time (s): {best_model_result['Time (s)']:.2f}\n\n")
-        f.write("--- Full Model Comparison ---\n")
-        header = f"{'Rank':<5} {'Model':<25} {metric1_name:<15} {metric2_name:<15} {'Time (s)':<10}\n"
-        f.write(header + "-"*len(header) + "\n")
-        for i, res in enumerate(results):
-            f.write(f"{i+1:<5} {res['Model']:<25} {res['Metric1']:<15.4f} {res['Metric2']:<15.4f} {res['Time (s)']:.2f}\n")
-    console.print(f"📋 Full report saved to [cyan]'{report_filename}'[/cyan]")
+    if save_artifacts:
+        report_filename = output_dir / "model_report.txt"
+        with open(report_filename, "w") as f:
+            f.write(f"--- Universal ML Model Explorer Report ---\n\n")
+            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Dataset: {args.dataset_path}\n")
+            f.write(f"Target Variable: {args.target_column}\n")
+            f.write(f"Problem Type: {problem_type.capitalize()}\n\n")
+            f.write(f"--- Best Model: {best_model_name} ---\n")
+            f.write(f"  - {metric1_name}: {best_model_result['Metric1']:.4f}\n")
+            f.write(f"  - {metric2_name}: {best_model_result['Metric2']:.4f}\n")
+            f.write(f"  - Training Time (s): {best_model_result['Time (s)']:.2f}\n\n")
+            f.write("--- Full Model Comparison ---\n")
+            header = f"{'Rank':<5} {'Model':<25} {metric1_name:<15} {metric2_name:<15} {'Time (s)':<10}\n"
+            f.write(header + "-"*len(header) + "\n")
+            for i, res in enumerate(results):
+                f.write(f"{i+1:<5} {res['Model']:<25} {res['Metric1']:<15.4f} {res['Metric2']:<15.4f} {res['Time (s)']:.2f}\n")
+        console.print(f"📋 Full report saved to [cyan]'{report_filename}'[/cyan]")
 
     # --- 8. Conclusion ---
     total_runtime = time.time() - start_run_time
     console.print(Panel(f"✅ [bold green]Pipeline finished successfully in {total_runtime:.2f} seconds![/bold green]", title="🏁 Complete", border_style="green"))
 
-def run_pipeline_in_notebook(dataset_path: str, target_column: str, **kwargs):
+def run_pipeline_in_notebook(dataset_path: str, target_column: str, save_artifacts: bool = False, **kwargs):
     """
     A helper to run the pipeline from a Jupyter Notebook or another script.
 
     Args:
         dataset_path (str): Path to the dataset.
         target_column (str): Name of the target column.
+        save_artifacts (bool): Whether to save models, plots, reports.
         **kwargs: Additional arguments like pca_components, no_shap, etc.
     """
     class Args:
-        def __init__(self, dataset_path, target_column, **kwargs):
+        def __init__(self, dataset_path, target_column, save_artifacts, **kwargs):
             self.dataset_path = dataset_path
             self.target_column = target_column
-            self.output_dir = kwargs.get("output_dir", "results")
             self.pca_components = kwargs.get("pca_components", None)
             self.no_shap = kwargs.get("no_shap", False)
+            self.output_dir = kwargs.get("output_dir", "results") if save_artifacts else None
 
-    args = Args(dataset_path, target_column, **kwargs)
-    main(args)
+    args = Args(dataset_path, target_column, save_artifacts, **kwargs)
+    main(args, save_artifacts)
 
-if __name__ == "__main__":
-    # Only run the argparse block if the script is executed directly
-    # This prevents it from running when imported in a notebook
-    import sys
-    if 'ipykernel' not in sys.modules:
-        parser = argparse.ArgumentParser(description="Universal ML Model Explorer Pro 🧠")
-        parser.add_argument("dataset_path", type=str, help="Path to the input CSV dataset.")
-        parser.add_argument("target_column", type=str, help="Name of the target variable column.")
-        parser.add_argument("--output_dir", type=str, default="results", help="Directory to save all output artifacts.")
-        parser.add_argument("--pca_components", type=int, default=None, help="Number of PCA components to use for numeric features.")
-        parser.add_argument("--no_shap", action="store_true", help="Disable SHAP plot generation to save time.")
-
-        args = parser.parse_args()
-        main(args)
