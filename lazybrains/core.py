@@ -905,3 +905,319 @@ def run_pipeline_in_notebook(dataset_path: str, target_column: str, save_artifac
     args = Args(dataset_path, target_column, save_artifacts, **kwargs)
     main(args, save_artifacts)
 
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
+from plotly.subplots import make_subplots
+import base64
+from io import BytesIO
+from datetime import datetime
+import logging
+from IPython.display import display, HTML
+
+class AutoEDA:
+    """
+    Automated Exploratory Data Analysis tool.
+
+    Generates a comprehensive EDA report for a given DataFrame.
+
+    Parameters
+    ----------
+    target_col : str, optional
+        The name of the target column for bivariate and target-specific analysis.
+    save_report : bool, optional (default=False)
+        If True, saves the report as an HTML file. Otherwise, displays it inline.
+    output_filename : str, optional
+        The name of the output HTML file. If not provided, a name with a
+        timestamp is generated automatically.
+    enable_logging : bool, optional (default=False)
+        If True, creates a log file of the operations performed.
+    """
+
+    def __init__(self, target_col=None, save_report=False, output_filename=None, enable_logging=False):
+        self.target_col = target_col
+        self.save_report = save_report
+        self.output_filename = output_filename
+        self.enable_logging = enable_logging
+        self.report_html = ""
+        self.start_time = datetime.now()
+
+        if self.enable_logging:
+            self._setup_logging()
+
+    def _setup_logging(self):
+        """Initializes the logging configuration."""
+        log_filename = f"autoeda_log_{self.start_time.strftime('%Y%m%d_%H%M%S')}.log"
+        logging.basicConfig(
+            filename=log_filename,
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            filemode='w'
+        )
+        self._log_info("Logging enabled.")
+
+    def _log_info(self, message):
+        """Logs an informational message."""
+        if self.enable_logging:
+            logging.info(message)
+
+    def _fig_to_html(self, fig):
+        """Converts a Plotly or Matplotlib figure to an HTML string."""
+        if isinstance(fig, go.Figure):
+            return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        
+        # For Matplotlib/Seaborn figures
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig)
+        data = base64.b64encode(buf.getbuffer()).decode("ascii")
+        return f'<img src="data:image/png;base64,{data}"/>'
+
+    def _add_section(self, title, content):
+        """Adds a new section to the HTML report."""
+        self.report_html += f"<h2>{title}</h2>{content}<hr>"
+
+    def run(self, df):
+        """
+        Executes the full EDA process on the DataFrame.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The input DataFrame to analyze.
+        """
+        self._log_info(f"Starting EDA for a DataFrame with shape {df.shape}.")
+        self.report_html = f"<h1>EDA Report - {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}</h1>"
+
+        # --- Analysis Sections ---
+        self._log_info("Analyzing basic info and data types.")
+        self._analyze_basic_info(df)
+        
+        self._log_info("Analyzing missing values.")
+        self._analyze_missing_values(df)
+
+        self._log_info("Analyzing duplicate and constant features.")
+        self._analyze_duplicates_and_constants(df)
+
+        self._log_info("Performing univariate analysis.")
+        self._univariate_analysis(df)
+        
+        self._log_info("Performing outlier detection.")
+        self._outlier_analysis(df)
+
+        self._log_info("Performing bivariate analysis.")
+        self._bivariate_analysis(df)
+
+        if self.target_col:
+            self._log_info(f"Performing target variable analysis for '{self.target_col}'.")
+            self._target_analysis(df)
+
+        # --- Finalize Report ---
+        if self.save_report:
+            if not self.output_filename:
+                self.output_filename = f"eda_report_{self.start_time.strftime('%Y%m%d_%H%M%S')}.html"
+            with open(self.output_filename, "w", encoding="utf-8") as f:
+                f.write(self.report_html)
+            print(f"EDA report saved to '{self.output_filename}'")
+            self._log_info(f"Report saved to {self.output_filename}.")
+        else:
+            display(HTML(self.report_html))
+        
+        end_time = datetime.now()
+        self._log_info(f"EDA finished. Total time taken: {end_time - self.start_time}.")
+
+    # --- Private Analysis Methods ---
+
+    def _analyze_basic_info(self, df):
+        """Analyzes data types and basic DataFrame info."""
+        num_cols = df.select_dtypes(include=np.number).columns.tolist()
+        cat_cols = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+        
+        info_html = f"""
+        <p><b>DataFrame Shape:</b> {df.shape[0]} rows, {df.shape[1]} columns</p>
+        <p><b>Numerical Columns ({len(num_cols)}):</b> {', '.join(num_cols)}</p>
+        <p><b>Categorical Columns ({len(cat_cols)}):</b> {', '.join(cat_cols)}</p>
+        """
+        
+        # Unique values in categorical columns
+        if cat_cols:
+            unique_counts = df[cat_cols].nunique().to_frame('Unique Values')
+            info_html += "<h3>Unique Values in Categorical Columns</h3>" + unique_counts.to_html()
+            
+        self._add_section("1. DataFrame Overview & Data Types", info_html)
+
+    def _analyze_missing_values(self, df):
+        """Analyzes and visualizes missing values."""
+        missing_counts = df.isnull().sum()
+        missing_perc = (missing_counts / len(df) * 100).round(2)
+        missing_df = pd.DataFrame({'Count': missing_counts, 'Percentage': missing_perc})
+        missing_df = missing_df[missing_df['Count'] > 0].sort_values(by='Count', ascending=False)
+
+        content_html = "<h3>Missing Value Counts & Percentage</h3>"
+        if missing_df.empty:
+            content_html += "<p>No missing values found.</p>"
+        else:
+            content_html += missing_df.to_html()
+            
+            # Bar plot for missing values
+            fig = go.Figure(go.Bar(x=missing_df.index, y=missing_df['Count'], text=missing_df['Percentage'].astype(str) + '%'))
+            fig.update_layout(title='Count of Missing Values per Column', xaxis_title='Columns', yaxis_title='Count')
+            content_html += self._fig_to_html(fig)
+
+            # Heatmap for missing values
+            plt.figure(figsize=(12, 6))
+            sns_plot = sns.heatmap(df.isnull(), cbar=False, cmap='viridis', yticklabels=False)
+            plt.title('Missing Value Heatmap')
+            content_html += self._fig_to_html(sns_plot.get_figure())
+
+        self._add_section("2. Missing Value Analysis", content_html)
+
+    def _analyze_duplicates_and_constants(self, df):
+        """Finds duplicate rows and constant columns."""
+        # Duplicates
+        num_duplicates = df.duplicated().sum()
+        content_html = f"<p><b>Duplicate Rows:</b> {num_duplicates} found.</p>"
+        
+        # Constants
+        constant_cols = [col for col in df.columns if df[col].nunique() <= 1]
+        content_html += f"<p><b>Constant Columns (1 unique value):</b> {len(constant_cols)} found. {', '.join(constant_cols)}</p>"
+        
+        self._add_section("3. Duplicate & Constant Feature Detection", content_html)
+
+    def _univariate_analysis(self, df):
+        """Performs univariate analysis for numerical and categorical columns."""
+        num_cols = df.select_dtypes(include=np.number).columns.tolist()
+        cat_cols = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+        
+        content_html = ""
+
+        # Numerical columns
+        if num_cols:
+            content_html += "<h3>Numerical Feature Distribution</h3>"
+            summary_stats = df[num_cols].describe().T
+            summary_stats['skew'] = df[num_cols].skew()
+            summary_stats['kurtosis'] = df[num_cols].kurtosis()
+            content_html += summary_stats.to_html()
+
+            for col in num_cols:
+                fig = make_subplots(rows=1, cols=2, subplot_titles=(f'Histogram of {col}', f'KDE Plot of {col}'))
+                fig.add_trace(go.Histogram(x=df[col], name='Histogram'), row=1, col=1)
+                kde_fig = ff.create_distplot([df[col].dropna()], [col], show_hist=False, show_rug=False)
+                fig.add_trace(kde_fig['data'][0], row=1, col=2)
+                fig.update_layout(showlegend=False, height=400, title_text=f"Distribution of {col}")
+                content_html += self._fig_to_html(fig)
+
+        # Categorical columns
+        if cat_cols:
+            content_html += "<h3>Categorical Feature Distribution</h3>"
+            for col in cat_cols:
+                counts = df[col].value_counts()
+                fig = go.Figure(go.Bar(x=counts.index, y=counts.values))
+                fig.update_layout(title=f'Value Counts for {col}', xaxis_title=col, yaxis_title='Count')
+                content_html += self._fig_to_html(fig)
+        
+        self._add_section("4. Univariate Analysis", content_html)
+
+    def _outlier_analysis(self, df):
+        """Detects outliers using the IQR method."""
+        num_cols = df.select_dtypes(include=np.number).columns.tolist()
+        if not num_cols:
+            self._add_section("5. Outlier Detection", "<p>No numerical columns to analyze for outliers.</p>")
+            return
+
+        outlier_counts = {}
+        for col in num_cols:
+            Q1 = df[col].quantile(0.25)
+            Q3 = df[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
+            if not outliers.empty:
+                outlier_counts[col] = len(outliers)
+        
+        content_html = "<h3>Outlier Counts (IQR Method)</h3>"
+        if not outlier_counts:
+            content_html += "<p>No outliers detected using the 1.5 * IQR rule.</p>"
+        else:
+            outlier_df = pd.DataFrame.from_dict(outlier_counts, orient='index', columns=['Outlier Count'])
+            content_html += outlier_df.to_html()
+            
+            content_html += "<h3>Boxplots for Columns with Outliers</h3>"
+            fig = go.Figure()
+            for col in outlier_counts.keys():
+                fig.add_trace(go.Box(y=df[col], name=col))
+            fig.update_layout(title="Boxplots of Features with Potential Outliers")
+            content_html += self._fig_to_html(fig)
+            
+        self._add_section("5. Outlier Detection", content_html)
+
+    def _bivariate_analysis(self, df):
+        """Performs bivariate analysis."""
+        num_cols = df.select_dtypes(include=np.number).columns.tolist()
+        content_html = ""
+
+        if len(num_cols) > 1:
+            content_html += "<h3>Numerical Feature Correlation</h3>"
+            corr = df[num_cols].corr()
+            fig = go.Figure(go.Heatmap(
+                z=corr.values,
+                x=corr.columns,
+                y=corr.columns,
+                colorscale='Viridis',
+                zmin=-1, zmax=1
+            ))
+            fig.update_layout(title='Correlation Heatmap')
+            content_html += self._fig_to_html(fig)
+
+            # Pairplot for top correlated features
+            if len(num_cols) > 2:
+                top_corr_cols = corr.unstack().sort_values(ascending=False).drop_duplicates()
+                top_5_pairs = top_corr_cols[top_corr_cols < 1].head(5).index.tolist()
+                if top_5_pairs:
+                    cols_to_plot = list(set([p[0] for p in top_5_pairs] + [p[1] for p in top_5_pairs]))
+                    content_html += "<h3>Pairplot of Top 5 Correlated Features</h3>"
+                    pairplot_fig = sns.pairplot(df[cols_to_plot], kind='reg', diag_kind='kde')
+                    content_html += self._fig_to_html(pairplot_fig.fig)
+
+        self._add_section("6. Bivariate Analysis", content_html)
+
+    def _target_analysis(self, df):
+        """Analyzes the relationship between features and the target."""
+        if self.target_col not in df.columns:
+            self._add_section("7. Target Variable Analysis", f"<p>Target column '{self.target_col}' not found in DataFrame.</p>")
+            return
+
+        target = df[self.target_col]
+        content_html = ""
+
+        # Target distribution
+        content_html += "<h3>Target Variable Distribution</h3>"
+        if pd.api.types.is_numeric_dtype(target) and target.nunique() > 20: # Regression
+            fig = ff.create_distplot([target.dropna()], [self.target_col], show_hist=False)
+            fig.update_layout(title=f'Distribution of Target: {self.target_col} (Regression)')
+            content_html += self._fig_to_html(fig)
+        else: # Classification
+            counts = target.value_counts()
+            fig = go.Figure(go.Bar(x=counts.index, y=counts.values))
+            fig.update_layout(title=f'Class Distribution of Target: {self.target_col} (Classification)')
+            content_html += self._fig_to_html(fig)
+
+        # Feature vs Target
+        content_html += "<h3>Feature vs. Target Analysis</h3>"
+        num_cols = df.select_dtypes(include=np.number).columns.drop(self.target_col, errors='ignore')
+        for col in num_cols:
+            fig = go.Figure()
+            if pd.api.types.is_numeric_dtype(target) and target.nunique() > 20: # Regression
+                 fig.add_trace(go.Scatter(x=df[col], y=target, mode='markers', marker=dict(opacity=0.6)))
+                 fig.update_layout(title=f'{col} vs. {self.target_col}', xaxis_title=col, yaxis_title=self.target_col)
+            else: # Classification
+                for cat in target.unique():
+                    fig.add_trace(go.Box(y=df[df[self.target_col] == cat][col], name=str(cat)))
+                fig.update_layout(title=f'{col} by {self.target_col}', boxmode='group')
+            content_html += self._fig_to_html(fig)
+
+        self._add_section("7. Target Variable Analysis", content_html)

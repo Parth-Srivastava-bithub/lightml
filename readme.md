@@ -117,7 +117,7 @@ Clone this repo or copy `AutoFeatSelect` into your project.
 ## 🛠️ How to Use
 
 ```python
-from autofeatselect import AutoFeatSelect
+from lazybrains import AutoFeatSelect
 
 selector = AutoFeatSelect(
     target_col='target',     # Optional if you want supervised feature selection
@@ -196,3 +196,135 @@ MIT — Use freely, just don't claim it's yours 😄
 ---
 
 Let me know if you want a logo, GitHub structure, or demo notebook too! 📁📈
+
+
+
+# 🔍 AutoEDAPro
+
+**AutoEDAPro** is a powerful, plug-and-play Python library for automated Exploratory Data Analysis (EDA).  
+It takes a pandas DataFrame and gives you a full, beautiful report — with stats, visuals, and deep insights — either inline (Jupyter) or as an HTML file.
+
+---
+
+## 🚀 Features
+
+- 📦 One-line EDA: Pass a DataFrame, get full analysis
+- 🔍 Missing values, constant features, outliers detection
+- 📊 Univariate & Bivariate visualizations (histograms, boxplots, KDE, correlation heatmaps)
+- 🎯 Optional target column analysis for classification & regression
+- 📁 HTML report export with optional logging
+- ✅ Jupyter inline display or standalone HTML output
+- ✨ Built using pandas, seaborn, matplotlib, plotly, numpy
+
+---
+
+## 📦 Installation
+
+First, make sure you have Python 3.7+
+
+Install required dependencies:
+
+```bash
+pip install pandas numpy matplotlib seaborn plotly scikit-learn
+```
+
+
+Here’s a complete `README.md` 📘 for your **AutoEDAPro** library that covers everything a user needs:
+
+---
+
+
+---
+
+## 🧪 Example Usage
+
+```python
+from autoeda import AutoEDA
+import seaborn as sns
+
+# Load sample dataset
+df = sns.load_dataset('titanic')
+
+# Run EDA inline (Jupyter)
+eda = AutoEDA(target_col='survived')
+eda.run(df)
+
+# Run EDA and save report as HTML with logging
+eda_html = AutoEDA(target_col='survived', save_report=True, enable_logging=True)
+eda_html.run(df)
+```
+
+You can also test the library via CLI by running the script directly:
+
+```bash
+python autoeda.py
+```
+
+It will:
+
+* Try to load Titanic dataset via seaborn
+* Fall back to a dummy dataset if that fails
+* Run both inline and saved HTML reports
+
+---
+
+## 🧠 Parameters
+
+| Parameter         | Type   | Default | Description                         |
+| ----------------- | ------ | ------- | ----------------------------------- |
+| `target_col`      | `str`  | `None`  | Target column for supervised EDA    |
+| `save_report`     | `bool` | `False` | If True, saves output as HTML       |
+| `output_filename` | `str`  | `None`  | Custom filename for saved HTML      |
+| `enable_logging`  | `bool` | `False` | If True, creates a log of EDA steps |
+
+---
+
+## 📁 Output
+
+* **Inline Display**: Shows report directly in Jupyter notebooks
+* **HTML Report**: If `save_report=True`, saves full interactive report with visualizations
+
+---
+
+## 🛠 Structure
+
+Main file: `autoeda.py`
+Main class: `AutoEDA`
+
+Each report contains:
+
+1. 📄 DataFrame shape, column types
+2. ❓ Missing values overview
+3. 🔁 Duplicate/constant columns
+4. 📊 Univariate plots for all features
+5. ⚠️ Outlier detection using IQR
+6. 🔗 Bivariate correlation heatmap + pairplots
+7. 🎯 Feature vs Target analysis
+
+---
+
+## ⚠️ Notes
+
+* For full display in script (not Jupyter), report is saved as HTML.
+* Uses Plotly CDN — make sure you're online for full interactivity.
+* Logging is optional but useful for debugging long processes.
+
+---
+
+
+
+## 📬 License
+
+Free to use and modify. Credits appreciated!
+
+---
+
+## 💡 Ideas for Future
+
+* Auto feature selection preview
+* Optional modeling report (LazyPredict-style)
+* Model explainability (SHAP, LIME)
+* CLI and web interface
+
+---
+
