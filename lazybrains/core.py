@@ -753,7 +753,15 @@ def generate_shap_plot(pipeline, X_train, X_test, problem_type, model_name, outp
 
 
 def main(args, save_artifacts=False):
-    """Main function to run the enhanced ML pipeline."""
+    """Main function to run the enhanced ML pipeline.
+
+    Parameters
+    ----------
+    args : argparse.Namespace or similar
+        Arguments including dataset_path, target_column, etc.
+    save_artifacts : bool, optional
+        Whether to save output artifacts.
+    """
     # --- 1. Setup & Introduction ---
     start_run_time = time.time()
     if save_artifacts:
@@ -884,25 +892,27 @@ def main(args, save_artifacts=False):
     total_runtime = time.time() - start_run_time
     console.print(Panel(f"✅ [bold green]Pipeline finished successfully in {total_runtime:.2f} seconds![/bold green]", title="🏁 Complete", border_style="green"))
 
-def run_pipeline_in_notebook(dataset_path: str, target_column: str, save_artifacts: bool = False, **kwargs):
+def run_pipeline_in_notebook(dataset_path: str = None, target_column: str = None, df: pd.DataFrame = None, save_artifacts: bool = False, **kwargs):
     """
     A helper to run the pipeline from a Jupyter Notebook or another script.
 
     Args:
-        dataset_path (str): Path to the dataset.
+        dataset_path (str, optional): Path to the dataset. If not provided, df must be given.
         target_column (str): Name of the target column.
+        df (pd.DataFrame, optional): DataFrame to use directly instead of loading from dataset_path.
         save_artifacts (bool): Whether to save models, plots, reports.
         **kwargs: Additional arguments like pca_components, no_shap, etc.
     """
     class Args:
-        def __init__(self, dataset_path, target_column, save_artifacts, **kwargs):
+        def __init__(self, dataset_path, target_column, df, save_artifacts, **kwargs):
             self.dataset_path = dataset_path
             self.target_column = target_column
+            self.df = df
             self.pca_components = kwargs.get("pca_components", None)
             self.no_shap = kwargs.get("no_shap", False)
             self.output_dir = kwargs.get("output_dir", "results") if save_artifacts else None
 
-    args = Args(dataset_path, target_column, save_artifacts, **kwargs)
+    args = Args(dataset_path, target_column, df, save_artifacts, **kwargs)
     main(args, save_artifacts)
 
 import pandas as pd
@@ -1221,3 +1231,357 @@ class AutoEDA:
             content_html += self._fig_to_html(fig)
 
         self._add_section("7. Target Variable Analysis", content_html)
+
+
+# autoclean.py
+# An advanced, scikit-learn inspired library for end-to-end tabular data preprocessing.
+# Version 2: Enhanced with rich logging, verbosity controls, and improved reliability.
+
+import pandas as pd
+import numpy as np
+import logging
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+import warnings
+warnings.filterwarnings('ignore')
+
+
+# --- Optional Rich Integration for better UX ---
+try:
+    from rich.logging import RichHandler
+    from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
+    from rich.panel import Panel
+    from rich.console import Console
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+class AutoClean(BaseEstimator, TransformerMixin):
+    """
+    An automated preprocessing library for tabular data that provides a complete
+    cleaning pipeline. It follows the sklearn fit/transform pattern for easy
+    integration into ML workflows.
+
+    Parameters
+    ----------
+    config : dict, optional
+        A dictionary to configure the preprocessing steps for specific columns.
+        If not provided, the library will use default behaviors.
+
+    verbose : bool, optional (default=True)
+        If True, enables detailed logging and progress bars using the 'rich' library.
+        If False, suppresses all output.
+    """
+    def __init__(self, config=None, verbose=True):
+        self.config = config if config else {}
+        self.verbose = verbose
+        self._fit_params = {}
+        self.summary_ = {}
+        self._logger = self._setup_logger()
+        if RICH_AVAILABLE and self.verbose:
+            self.console = Console()
+
+    def _setup_logger(self):
+        """Sets up the logger based on verbosity."""
+        logger = logging.getLogger(f"AutoClean_{id(self)}")
+        logger.propagate = False # Prevent duplicate logs in root logger
+        if self.verbose and RICH_AVAILABLE:
+            handler = RichHandler(show_time=False, show_path=False, rich_tracebacks=True)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+        else:
+            handler = logging.NullHandler()
+        
+        logger.handlers = [handler]
+        logger.setLevel(logging.INFO if self.verbose else logging.WARNING)
+        return logger
+
+    def fit(self, X, y=None):
+        """
+        Learns the parameters required for transformation from the data.
+        """
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("Input must be a pandas DataFrame.")
+        
+        X_fit = X.copy()
+        
+        with self._progress_context("Fitting Pipeline") as progress:
+            task = progress.add_task("Total Fit Progress", total=5)
+
+            self._logger.info("[bold cyan]Step 1: Inferring Column Types[/bold cyan]")
+            self._infer_types(X_fit)
+            progress.update(task, advance=1)
+
+            self._logger.info("[bold cyan]Step 2: Fitting Imputer[/bold cyan]")
+            self._fit_imputer(X_fit, y)
+            X_fit = self._transform_imputer(X_fit, is_fit_phase=True)
+            progress.update(task, advance=1)
+
+            self._logger.info("[bold cyan]Step 3: Fitting Outlier Handler[/bold cyan]")
+            self._fit_outliers(X_fit)
+            progress.update(task, advance=1)
+
+            self._logger.info("[bold cyan]Step 4: Fitting Encoder[/bold cyan]")
+            self._fit_encoder(X_fit)
+            progress.update(task, advance=1)
+
+            self._logger.info("[bold cyan]Step 5: Fitting Scaler[/bold cyan]")
+            self._fit_scaler(X_fit)
+            progress.update(task, advance=1)
+
+        self._logger.info("[bold green]:white_check_mark: Fitting complete.[/bold green]")
+        return self
+
+    def transform(self, X):
+        """
+        Applies the learned preprocessing transformations to the data.
+        """
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("Input must be a pandas DataFrame.")
+            
+        X_transformed = X.copy()
+        self.summary_ = {'actions': []}
+
+        with self._progress_context("Transforming Data") as progress:
+            task = progress.add_task("Total Transform Progress", total=4)
+
+            X_transformed = self._transform_imputer(X_transformed)
+            progress.update(task, advance=1)
+            
+            X_transformed = self._transform_outliers(X_transformed)
+            progress.update(task, advance=1)
+            
+            X_transformed = self._transform_encoder(X_transformed)
+            progress.update(task, advance=1)
+            
+            X_transformed = self._transform_scaler(X_transformed)
+            progress.update(task, advance=1)
+
+        self._generate_summary()
+        return X_transformed
+
+    def fit_transform(self, X, y=None):
+        self.fit(X, y)
+        return self.transform(X)
+        
+    def _progress_context(self, description):
+        """Creates a rich.progress context or a dummy context."""
+        if RICH_AVAILABLE and self.verbose:
+            return Progress(
+                TextColumn("[bold blue]{task.description}", justify="right"),
+                BarColumn(bar_width=None),
+                "[progress.percentage]{task.percentage:>3.1f}%",
+                "•",
+                TimeElapsedColumn(),
+                "•",
+                TimeRemainingColumn(),
+                console=self.console,
+            )
+        else:
+            # Dummy context manager if rich is not available or verbose is False
+            class DummyContext:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+                def add_task(self, *args, **kwargs): return 0
+                def update(self, *args, **kwargs): pass
+            return DummyContext()
+
+    # --- Private Helper Methods ---
+
+    def _infer_types(self, df):
+        self._fit_params['types'] = {}
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                self._fit_params['types'][col] = 'numeric'
+            elif pd.api.types.is_datetime64_any_dtype(df[col]):
+                self._fit_params['types'][col] = 'datetime'
+            else:
+                self._fit_params['types'][col] = 'categorical'
+
+    def _fit_imputer(self, df, y):
+        self._fit_params['imputation'] = {}
+        impute_config = self.config.get('impute', {})
+        for col in df.columns:
+            if df[col].isnull().sum() > 0:
+                strategy = impute_config.get(col, 'mean' if self._fit_params['types'][col] == 'numeric' else 'mode')
+                params = {'strategy': strategy}
+                if strategy in ['mean', 'median']:
+                    params['value'] = df[col].agg(strategy)
+                elif strategy == 'mode':
+                    params['value'] = df[col].mode()[0]
+                elif strategy == 'constant':
+                    params['value'] = self.config.get('impute', {}).get(col, {}).get('fill_value', 0)
+                elif strategy == 'predictive' and self._fit_params['types'][col] == 'numeric':
+                    # Use only other complete numeric columns for prediction to ensure reliability
+                    predictor_cols = [c for c, t in self._fit_params['types'].items() if t == 'numeric' and c != col and df[c].isnull().sum() == 0]
+                    if predictor_cols:
+                        imputer_model = IterativeImputer(RandomForestRegressor(n_estimators=10, random_state=0), max_iter=5, random_state=0)
+                        imputer_model.fit(df[predictor_cols], df[col])
+                        params['model'] = imputer_model
+                        params['features'] = predictor_cols
+                    else:
+                        # Fallback if no suitable predictors are found
+                        params['strategy'] = 'mean'
+                        params['value'] = df[col].mean()
+                        self._logger.warning(f"Predictive imputation for '{col}' failed (no suitable predictors). Falling back to 'mean'.")
+                self._fit_params['imputation'][col] = params
+
+    def _transform_imputer(self, df, is_fit_phase=False):
+        """
+        Transforms missing values using the strategies learned in _fit_imputer.
+        Parameters
+        ----------
+        df : DataFrame
+            The data to be transformed.
+        is_fit_phase : bool, optional
+            Whether this is being called from the fit phase. Defaults to False.
+        Returns
+        -------
+        DataFrame
+            Transformed DataFrame with imputed values.
+        """
+        df_copy = df.copy()
+
+        # Loop through all columns that need imputation
+        for col, params in self._fit_params.get('imputation', {}).items():
+            # Only proceed if column has missing values
+            if df_copy[col].isnull().sum() > 0:
+                strategy = params['strategy']
+
+                # Handle simple strategies
+                if strategy in ['mean', 'median', 'mode', 'constant']:
+                    fill_value = params['value']
+
+                    # Fill missing values directly
+                    df_copy[col].fillna(fill_value, inplace=True)
+
+                    # Format the value string for numeric or non-numeric
+                    val_str = f"{fill_value:.2f}" if isinstance(fill_value, (int, float)) else f"'{fill_value}'"
+
+                    # Add to transformation summary only during transform phase
+                    if not is_fit_phase:
+                        self.summary_['actions'].append(
+                            f"Imputed {df[col].isnull().sum()} missing values in '{col}' with {strategy} value ({val_str})."
+                        )
+
+                # Handle predictive model-based imputation
+                elif strategy == 'predictive' and 'model' in params:
+                    missing_mask = df_copy[col].isnull()
+
+                    # Check if there are still missing values
+                    if missing_mask.sum() > 0:
+                        pred_features = df_copy.loc[missing_mask, params['features']]
+
+                        # Predict and fill only if we have valid features
+                        if not pred_features.empty:
+                            df_copy.loc[missing_mask, col] = params['model'].transform(pred_features)
+
+                            # Log only if not in fit phase
+                            if not is_fit_phase:
+                                self.summary_['actions'].append(
+                                    f"Imputed {missing_mask.sum()} missing values in '{col}' using a predictive model."
+                                )
+
+        return df_copy
+
+
+    def _fit_outliers(self, df):
+        self._fit_params['outliers'] = {}
+        outlier_config = self.config.get('outliers', {})
+        for col, type in self._fit_params['types'].items():
+            if type == 'numeric':
+                col_config = outlier_config.get(col, {})
+                method = col_config.get('method', 'iqr')
+                capping = col_config.get('capping', True)
+                lower, upper = None, None
+                if method == 'iqr':
+                    q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
+                    iqr = q3 - q1
+                    lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+                elif method == 'zscore':
+                    mean, std = df[col].mean(), df[col].std()
+                    thresh = col_config.get('threshold', 3)
+                    lower, upper = mean - thresh * std, mean + thresh * std
+                if lower is not None:
+                    self._fit_params['outliers'][col] = {'method': method, 'bounds': (lower, upper), 'capping': capping}
+
+    def _transform_outliers(self, df):
+        df_copy = df.copy()
+        for col, params in self._fit_params.get('outliers', {}).items():
+            if params.get('capping'):
+                lower, upper = params['bounds']
+                original = df_copy[col].copy()
+                df_copy[col] = df_copy[col].clip(lower, upper)
+                outliers_count = (original < lower).sum() + (original > upper).sum()
+                if outliers_count > 0:
+                    self.summary_['actions'].append(f"Capped {outliers_count} outliers in [bold magenta]'{col}'[/bold magenta] using {params['method']} method.")
+        return df_copy
+
+    def _fit_encoder(self, df):
+        self._fit_params['encoding'] = {}
+        encode_config = self.config.get('encode', {})
+        for col, type in self._fit_params['types'].items():
+            if type == 'categorical':
+                strategy = encode_config.get(col, 'ohe')
+                if strategy == 'ohe':
+                    # NaN is handled by pandas, we just need to know the categories
+                    categories = df[col].dropna().unique().tolist()
+                    self._fit_params['encoding'][col] = {'strategy': 'ohe', 'categories': categories}
+                elif strategy == 'ordinal':
+                    categories = df[col].value_counts().index.tolist()
+                    mapping = {cat: i for i, cat in enumerate(categories)}
+                    self._fit_params['encoding'][col] = {'strategy': 'ordinal', 'mapping': mapping}
+
+    def _transform_encoder(self, df):
+        df_copy = df.copy()
+        for col, params in self._fit_params.get('encoding', {}).items():
+            strategy = params['strategy']
+            if col in df_copy.columns:
+                if strategy == 'ohe':
+                    # Use pd.Categorical to ensure consistency with fitted categories
+                    df_copy[col] = pd.Categorical(df_copy[col], categories=params['categories'])
+                    dummies = pd.get_dummies(df_copy[col], prefix=col, prefix_sep='=', dummy_na=False) # dummy_na=False is more reliable
+                    df_copy = pd.concat([df_copy.drop(col, axis=1), dummies], axis=1)
+                    self.summary_['actions'].append(f"One-hot encoded [bold magenta]'{col}'[/bold magenta] into {len(dummies.columns)} columns.")
+                elif strategy == 'ordinal':
+                    mapping = params['mapping']
+                    df_copy[col] = df_copy[col].map(mapping).fillna(-1).astype(int) # -1 for unseen categories
+                    self.summary_['actions'].append(f"Ordinal encoded [bold magenta]'{col}'[/bold magenta] using a learned frequency-based mapping.")
+        return df_copy
+
+    def _fit_scaler(self, df):
+        self._fit_params['scaling'] = {}
+        scale_config = self.config.get('scale', {})
+        for col, type in self._fit_params['types'].items():
+            if type == 'numeric' and col in df.columns: # Check if col still exists after encoding
+                strategy = scale_config.get(col, 'StandardScaler')
+                scaler_map = {'MinMaxScaler': MinMaxScaler, 'RobustScaler': RobustScaler, 'StandardScaler': StandardScaler}
+                scaler = scaler_map.get(strategy, StandardScaler)()
+                scaler.fit(df[[col]])
+                self._fit_params['scaling'][col] = scaler
+
+    def _transform_scaler(self, df):
+        df_copy = df.copy()
+        for col, scaler in self._fit_params.get('scaling', {}).items():
+            if col in df_copy.columns:
+                df_copy[col] = scaler.transform(df_copy[[col]])
+                self.summary_['actions'].append(f"Scaled [bold magenta]'{col}'[/bold magenta] using {scaler.__class__.__name__}.")
+        return df_copy
+
+    def _generate_summary(self):
+        if not self.verbose or not RICH_AVAILABLE:
+            return
+        
+        summary_text = "\n".join([f"• {action}" for action in self.summary_['actions']])
+        if not summary_text:
+            summary_text = "No transformations were applied based on the configuration."
+            
+        panel = Panel(
+            summary_text,
+            title="[bold green]AutoClean Transformation Summary[/bold green]",
+            border_style="blue"
+        )
+        self.console.print(panel)
+

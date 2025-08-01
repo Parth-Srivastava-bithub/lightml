@@ -1,6 +1,6 @@
 [project]
 name = "lazybrains"
-version = "3.0.0"
+version = "4.0.0"
 description = "Model Selection Tool"
 authors = [{name = "Foresty", email = "dsparthsrivastava@email.com"}]
 readme = "README.md"

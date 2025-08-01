@@ -43,7 +43,7 @@ python main.py path/to/dataset.csv target_column_name
 ## 🧬 Python Usage
 
 ```python
-from yourlib import run_pipeline_in_notebook
+from lazybrains import run_pipeline_in_notebook
 
 run_pipeline_in_notebook(
     dataset_path="data.csv",
@@ -239,7 +239,7 @@ Here’s a complete `README.md` 📘 for your **AutoEDAPro** library that covers
 ## 🧪 Example Usage
 
 ```python
-from autoeda import AutoEDA
+from lazybrains import AutoEDA
 import seaborn as sns
 
 # Load sample dataset
@@ -328,3 +328,117 @@ Free to use and modify. Credits appreciated!
 
 ---
 
+
+# AutoClean 🧼  
+**An advanced, scikit-learn style tabular data preprocessing pipeline.**
+
+AutoClean simplifies and automates the process of preparing tabular data for machine learning. From imputing missing values to handling outliers, encoding categoricals, and scaling features — all steps are neatly handled in a single pipeline.
+
+---
+
+## 🔧 Features
+
+- scikit-learn compatible: `fit`, `transform`, `fit_transform`
+- Customizable config-based preprocessing
+- Missing value imputation (mean, median, mode, constant, predictive)
+- Outlier detection and capping (IQR, Z-score)
+- Encoding (OneHot, Ordinal)
+- Feature Scaling (Standard, MinMax, Robust)
+- Detailed transformation summary (with optional Rich UI)
+
+---
+
+## 📦 Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+Make sure `scikit-learn`, `pandas`, `numpy` are installed. For rich logs:
+
+```bash
+pip install rich
+```
+
+---
+
+## 🚀 Quick Start
+
+```python
+from lazybrains import AutoClean
+import pandas as pd
+
+# Sample data
+df = pd.DataFrame({
+    'age': [25, 30, None, 45, 50],
+    'salary': [1000, 2000, 300000, 4000, None],
+    'gender': ['M', 'F', None, 'F', 'M'],
+    'city': ['Delhi', 'Mumbai', 'Delhi', 'Bangalore', 'Delhi']
+})
+
+# Configuration (optional)
+config = {
+    'impute': {'age': 'mean', 'gender': 'mode'},
+    'outliers': {'salary': {'method': 'iqr', 'capping': True}},
+    'encode': {'gender': 'ordinal', 'city': 'ohe'},
+    'scale': {'salary': 'StandardScaler'}
+}
+
+# Use AutoClean
+cleaner = AutoClean(config=config, verbose=True)
+cleaned_df = cleaner.fit_transform(df)
+print(cleaned_df.head())
+```
+
+---
+
+## ⚙️ Configuration Options
+
+```python
+config = {
+    'impute': {
+        'age': 'mean',            # or median, mode, constant, predictive
+        'gender': 'mode'
+    },
+    'outliers': {
+        'salary': {'method': 'iqr', 'capping': True}
+    },
+    'encode': {
+        'gender': 'ordinal',      # or 'ohe'
+        'city': 'ohe'
+    },
+    'scale': {
+        'salary': 'StandardScaler', # or MinMaxScaler, RobustScaler
+    }
+}
+```
+
+---
+
+## ✅ Output
+
+* Transformed `DataFrame` ready for ML.
+* Rich summary of all preprocessing steps.
+* Compatible with any sklearn pipeline.
+
+---
+
+## 🧠 Internals
+
+* Uses `IterativeImputer` + `RandomForestRegressor` for predictive imputation.
+* Rich logging with progress bars using the `rich` package.
+* Modular & extensible design for future enhancements.
+
+---
+
+## 🧑‍💻 Author
+
+Made with ❤️ by a passionate Data Scientist.
+
+---
+
+## 📄 License
+
+```
+MIT License
+```
