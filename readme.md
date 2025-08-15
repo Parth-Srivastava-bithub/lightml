@@ -6,7 +6,7 @@
 ![Maintained](https://img.shields.io/badge/Maintained%3F-Yes-blue)
 ![Status](https://img.shields.io/badge/Status-Active-success)
 ![Build](https://img.shields.io/badge/Build-Passing-brightgreen)
-![Downloads](https://img.shields.io/pypi/dm/lazybrains?label=Downloads&color=orange)
+![Downloads](https://img.shields.io/badge/dynamic/json?url=https://pypistats.org/api/packages/lazybrains/recent&label=Downloads&query=%24.data.last_month&suffix=%2Fmonth&color=orange)
 
 > One-line ML pipeline that preprocesses, trains, compares, and visualizes the best model — automatically.
 
@@ -109,11 +109,6 @@ pip install -U pandas numpy scikit-learn statsmodels scipy
 ```
 
 
-
-Clone this repo or copy `AutoFeatSelect` into your project.
-
----
-
 ## 🛠️ How to Use
 
 ```python
@@ -174,23 +169,6 @@ print(report)
 | Tree Importance          | Uses ExtraTrees to measure signal power  |
 
 ---
-
-
-## ❤️ Contribute / Fork
-
-Feel free to fork and extend this library — make it smarter, add plotting, or wrap it into a full AutoML pipeline!
-
----
-
-## 🔓 License
-
-MIT — Use freely, just don't claim it's yours 😄
-
-
----
-
-Let me know if you want a logo, GitHub structure, or demo notebook too! 📁📈
-
 
 
 # 🔍 AutoEDAPro
@@ -305,13 +283,6 @@ Each report contains:
 
 ---
 
-
-
-## 📬 License
-
-Free to use and modify. Credits appreciated!
-
----
 
 ## 💡 Ideas for Future
 
