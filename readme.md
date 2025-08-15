@@ -175,12 +175,6 @@ print(report)
 
 ---
 
-## 🤝 Author
-
-Built by **Gemini**
-Version: `1.0.0`
-
----
 
 ## ❤️ Contribute / Fork
 
