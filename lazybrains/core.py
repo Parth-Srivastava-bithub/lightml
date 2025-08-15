@@ -9,6 +9,18 @@ import joblib
 import shap
 from pathlib import Path
 
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
+from plotly.subplots import make_subplots
+import base64
+from io import BytesIO
+from datetime import datetime
+import logging
+from IPython.display import display, HTML
 # --- Scikit-learn Imports ---
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
@@ -122,8 +134,6 @@ Core Features:
 - Highly customizable with thresholds for various checks.
 - Lightweight, with dependencies only on pandas, numpy, scikit-learn, and statsmodels.
 
-Author: Gemini
-Version: 1.0.0
 """
 
 import pandas as pd
@@ -915,18 +925,7 @@ def run_pipeline_in_notebook(dataset_path: str = None, target_column: str = None
     args = Args(dataset_path, target_column, df, save_artifacts, **kwargs)
     main(args, save_artifacts)
 
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-import plotly.figure_factory as ff
-from plotly.subplots import make_subplots
-import base64
-from io import BytesIO
-from datetime import datetime
-import logging
-from IPython.display import display, HTML
+
 
 class AutoEDA:
     """
